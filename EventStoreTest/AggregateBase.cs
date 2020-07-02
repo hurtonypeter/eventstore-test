@@ -6,7 +6,7 @@ namespace EventStoreTest
 {
     public interface IAggregate
     {
-        int Version { get; }
+        long Version { get; }
         string Identifier { get; }
         void ApplyEvent(object @event);
         ICollection<object> GetPendingEvents();
@@ -19,7 +19,7 @@ namespace EventStoreTest
 
         public Guid Id { get; set; }
         public string Identifier => $"{GetType().Name}";
-        public int Version { get; private set; } = -1;
+        public long Version { get; private set; } = -1;
 
         void IAggregate.ApplyEvent(object @event)
         {

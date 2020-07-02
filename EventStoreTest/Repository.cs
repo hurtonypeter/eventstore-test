@@ -39,37 +39,13 @@ namespace EventStoreTest
 
             var streamName = $"{aggregate.Identifier}-{id}";
 
-            var resp = _eventStoreConnection.ReadStreamAsync(Direction.Forwards, streamName, StreamPosition.Start);
-            await foreach (var evt in resp)
+            var events = _eventStoreConnection.ReadStreamAsync(Direction.Forwards, streamName, StreamPosition.Start);
+            
+            await foreach (var evt in events)
             {
                 var payload = DeserializeEvent(evt);
                 aggregate.ApplyEvent(payload);
             }
-
-            //long eventNumber = 0;
-            //StreamEventsSlice currentSlice;
-            //do
-            //{
-            //    currentSlice = await _eventStoreConnection.ReadStreamEventsForwardAsync(streamName, eventNumber, ReadPageSize, false);
-
-            //    if (currentSlice.Status == SliceReadStatus.StreamNotFound)
-            //    {
-            //        throw new AggregateNotFoundException(id, typeof(TAggregate));
-            //    }
-
-            //    if (currentSlice.Status == SliceReadStatus.StreamDeleted)
-            //    {
-            //        throw new AggregateDeletedException(id, typeof(TAggregate));
-            //    }
-
-            //    eventNumber = currentSlice.NextEventNumber;
-
-            //    foreach (var resolvedEvent in currentSlice.Events)
-            //    {
-            //        var payload = DeserializeEvent(resolvedEvent.Event);
-            //        aggregate.ApplyEvent(payload);
-            //    }
-            //} while (!currentSlice.IsEndOfStream);
 
             return aggregate;
         }
@@ -86,11 +62,9 @@ namespace EventStoreTest
             var streamName = $"{aggregate.Identifier}-{aggregate.Id}";
 
             var pendingEvents = aggregate.GetPendingEvents();
-            var originalVersion = aggregate.Version - pendingEvents.Count;
+            var originalVersion = (uint)aggregate.Version - (uint)pendingEvents.Count;
 
-            //TODO: konkurenciakezelés, expectedversion izé
-            //TODO: hamárvanilyenstream-akkorszálljonel-kezelés, StreamState enum
-            //TODO: tranzakciókezelés több batch-nél
+            //TODO: hamárvanilyenstream-akkorszálljonel-kezelés, StreamState enum ?
 
             try
             {
@@ -99,35 +73,16 @@ namespace EventStoreTest
                 var commitHeaders = CreateCommitHeaders(aggregate, extraHeaders);
                 var eventsToSave = pendingEvents.Select(x => ToEventData(Guid.NewGuid(), x, commitHeaders));
 
-                var eventBatches = GetEventBatches(eventsToSave);
-
-                //if (eventBatches.Count == 1)
-                //{
-                    // If just one batch write them straight to the Event Store
-                    result = await _eventStoreConnection.AppendToStreamAsync(streamName, StreamState.Any, eventBatches[0]);
-                //}
-                //else
-                //{
-                //    // If we have more events to save than can be done in one batch according to the WritePageSize, then we need to save them in a transaction to ensure atomicity
-                //    using var transaction = await _eventStoreConnection.StartTransactionAsync(streamName, originalVersion);
-                //    foreach (var batch in eventBatches)
-                //    {
-                //        await transaction.WriteAsync(batch);
-                //    }
-
-                //    result = await transaction.CommitAsync();
-                //}
+                result = await _eventStoreConnection.AppendToStreamAsync(streamName, originalVersion, eventsToSave);
 
                 aggregate.ClearPendingEvents();
 
                 return result.NextExpectedVersion;
             }
-            catch (Exception ex)
+            catch (WrongExpectedVersionException ex)
             {
-                Console.WriteLine(ex.Message);
+                throw new /*Concurrency*/Exception("concurrency exception", ex);
             }
-
-            return originalVersion + 1;
         }
 
 

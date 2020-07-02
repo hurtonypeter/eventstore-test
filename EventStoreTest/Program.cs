@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Security;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace EventStoreTest
@@ -76,7 +77,7 @@ namespace EventStoreTest
         {
             if (Items.Any(x => x.ItemId == itemId))
             {
-                throw new /*Domain*/Exception("Item already exists in the order!");
+                //throw new /*Domain*/Exception("Item already exists in the order!");
             }
 
             RaiseEvent(new OrderItemAddedEvent
@@ -90,7 +91,7 @@ namespace EventStoreTest
         {
             if (!Items.Any(x => x.ItemId == itemId))
             {
-                throw new /*Domain*/Exception("Item does not exist in the order!");
+                //throw new /*Domain*/Exception("Item does not exist in the order!");
             }
 
             RaiseEvent(new OrderItemRemovedEvent
@@ -121,6 +122,28 @@ namespace EventStoreTest
 
         static async Task Main(string[] args)
         {
+            var subs = new EventStorePersistentSubscriptionsClient(new EventStoreClientSettings
+            {
+                DefaultCredentials = new UserCredentials("admin", "changeit"),
+                CreateHttpMessageHandler = () => new SocketsHttpHandler
+                {
+                    SslOptions = new SslClientAuthenticationOptions
+                    {
+                        RemoteCertificateValidationCallback = delegate { return true; }
+                    }
+                }
+            });
+            try
+            {
+                await subs.CreateAsync("$ce-Order", "consoleapp2", new PersistentSubscriptionSettings());
+            }
+            catch { }
+            await subs.SubscribeAsync("$ce-Order", "consoleapp2", (sub, evt, pos, canc) =>
+            {
+                Console.WriteLine("event arrived: " + System.Text.Json.JsonSerializer.Serialize(evt.Event));
+                return Task.CompletedTask;
+            });
+
             var client = new EventStoreClient(new EventStoreClientSettings
             {
                 OperationOptions = {
@@ -156,15 +179,15 @@ namespace EventStoreTest
                 //await repo.SaveAsync(order2);
             }
 
-            //// trans 2
+            // trans 2
             using (var scope = provider.CreateScope())
             {
                 var repo = scope.ServiceProvider.GetRequiredService<IRepository>();
 
                 var order = await repo.GetByIdAsync<Order>(order1Id);
 
-                order.AddItem(item1Id, 2);
-                order.AddItem(item2Id, 3);
+                //order.AddItem(item1Id, 2);
+                //order.AddItem(item2Id, 3);
 
                 await repo.SaveAsync(order);
             }
@@ -189,6 +212,28 @@ namespace EventStoreTest
 
                 var order = await repo.GetByIdAsync<Order>(order1Id);
             }
+
+            //// trans 5
+            using (var scope = provider.CreateScope())
+            {
+                //var repo = scope.ServiceProvider.GetRequiredService<IRepository>();
+
+                //var orderInst1 = await repo.GetByIdAsync<Order>(order1Id);
+
+                //var orderInst2 = await repo.GetByIdAsync<Order>(order1Id);
+
+                //orderInst1.AddItem(item4Id, 2);
+                //await repo.SaveAsync(orderInst1);
+
+
+                //orderInst2.AddItem(item3Id, 5);
+                //await repo.SaveAsync(orderInst2);
+            }
+
+            do
+            {
+                Thread.Sleep(1000);
+            } while (true);
         }
     }
 }
